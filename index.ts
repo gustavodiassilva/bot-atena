@@ -1,10 +1,4 @@
-import {
-  Client,
-  Collection,
-  Events,
-  GatewayIntentBits,
-  MessageFlags,
-} from "discord.js";
+import { Client, Collection, GatewayIntentBits } from "discord.js";
 import * as dotenv from "dotenv";
 import * as fs from "node:fs";
 import path from "node:path";
@@ -15,6 +9,7 @@ const token: string | undefined = process.env.DISCORD_TOKEN;
 
 interface CustomClient extends Client {
   commands: Collection<string, any>;
+  cooldowns: Collection<string, any>;
 }
 
 if (!token) {
@@ -28,6 +23,8 @@ const client = new Client({
 }) as CustomClient;
 
 client.commands = new Collection();
+
+client.cooldowns = new Collection();
 
 const foldersPath = path.join(__dirname, "commands");
 const commandFolders = fs.readdirSync(foldersPath);
@@ -52,35 +49,20 @@ for (const folder of commandFolders) {
   }
 }
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  const command = client.commands.get(interaction.commandName);
+const eventsPath = path.join(__dirname, "events");
+const eventFiles = fs
+  .readdirSync(eventsPath)
+  .filter((file) => file.endsWith(".ts"));
 
-  if (!command) {
-    console.error(`No command matching ${interaction.commandName} was found.`);
-    return;
+for (const file of eventFiles) {
+  const filePath = path.join(eventsPath, file);
+  const event = require(filePath);
+
+  if (event.once) {
+    client.once(event.name, (...args) => event.execute(...args));
+  } else {
+    client.on(event.name, (...args) => event.execute(...args));
   }
-
-  try {
-    await command.execute(interaction);
-  } catch (error) {
-    console.error(error);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: "There was an error while executing this command!",
-        flags: MessageFlags.Ephemeral,
-      });
-    } else {
-      await interaction.reply({
-        content: "There was an error while executing this command!",
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-  }
-});
-
-client.once(Events.ClientReady, (readyclient: Client<true>) => {
-  console.log(`Ready! Logged in as ${readyclient.user.tag}`);
-});
+}
 
 client.login(token);
